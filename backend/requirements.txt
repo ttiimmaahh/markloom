@@ -1,0 +1,19 @@
+fastapi
+uvicorn[standard]
+pydantic-settings
+python-multipart          # required by FastAPI for file uploads
+apscheduler               # nightly auto-expire sweep
+
+# MarkItDown + the document format extras this service advertises.
+# This install line IS the public contract for supported formats — add extras
+# here (and to ALLOWED_EXTENSIONS) to support more. Some extras also need system
+# packages in the Dockerfile (e.g. audio/image tooling); the doc formats below
+# are pure-Python.
+markitdown[pdf,docx,pptx,xlsx,xls]
+
+# Used only when the optional LLM features are configured (LLM_API_KEY/BASE_URL
+# + LLM_MODEL). Works with any OpenAI-compatible endpoint.
+openai
+# Powers "Enhanced" conversion: OCRs images embedded in PDF/DOCX/PPTX/XLSX via
+# the configured vision LLM. Registered as a MarkItDown plugin.
+markitdown-ocr

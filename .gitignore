@@ -1,0 +1,28 @@
+# --- data & database (NEVER commit; generated on first run) ---
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv*/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# --- node / frontend build ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.tsbuildinfo
+
+# --- env & secrets ---
+.env
+
+# --- os / editor ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

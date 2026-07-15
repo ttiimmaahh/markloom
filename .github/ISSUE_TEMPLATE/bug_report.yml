@@ -1,0 +1,55 @@
+name: Bug report
+description: Something isn't working as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time to file a bug! Please fill out the sections below.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected instead.
+      placeholder: Dropping a .docx returns "failed" with no download link…
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Drop file X into the dropzone
+        2. Wait for it to process
+        3. See error Y
+    validations:
+      required: true
+  - type: input
+    id: file-type
+    attributes:
+      label: File type involved
+      description: The format you were converting (pdf, docx, pptx, xlsx, …), if relevant.
+      placeholder: docx
+  - type: textarea
+    id: logs
+    attributes:
+      label: Container logs
+      description: Output of `docker compose logs` around the failure. This will be rendered as code, so no backticks needed.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Image tag / commit
+      description: Which image tag or git commit are you running?
+      placeholder: "ghcr.io/ttiimmaahh/markloom:latest"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How are you running it?
+      options:
+        - Docker (compose.yaml, pulled image)
+        - Docker (compose.dev.yaml, built locally)
+        - Native (uvicorn + vite dev)
+    validations:
+      required: true

@@ -1,0 +1,14 @@
+# keep the build context small and reproducible
+**/node_modules
+**/dist
+**/__pycache__
+**/*.pyc
+.venv
+.venv-test
+venv
+data
+.git
+.env
+*.db
+*.db-wal
+*.db-shm

@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an idea or improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that's hard or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to see happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds or other approaches you've thought about.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      description: This project aims to stay a simple, self-hostable single-purpose tool.
+      options:
+        - label: This keeps the project simple and self-hostable (not a general-purpose platform).
+          required: false

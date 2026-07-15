@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question / discussion
+    url: https://github.com/ttiimmaahh/markloom/discussions
+    about: Ask questions, share setups, and discuss ideas here.
+  - name: Conversion looks wrong? Check MarkItDown
+    url: https://github.com/microsoft/markitdown/issues
+    about: >-
+      If a specific file converts to poor or incorrect Markdown, the root cause is
+      usually in MarkItDown (the conversion engine), not this web app. Please
+      report format-fidelity bugs there.

@@ -1,0 +1,20 @@
+# Local development. Builds the image from source instead of pulling it.
+#   docker compose -f compose.dev.yaml up --build
+services:
+  markloom:
+    container_name: markloom-dev
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8674:8000"
+    volumes:
+      - ./data:/data
+    env_file:
+      - .env                 # copy .env.example -> .env first
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

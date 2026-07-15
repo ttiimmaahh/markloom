@@ -1,0 +1,32 @@
+# Production deployment. Pulls the prebuilt image — no build step, no .env needed.
+#   docker compose up -d   →   http://localhost:8674
+#
+# Every setting below is optional and shown at its default; delete a line to keep
+# the default, or change it in place. See docs/configuration.md for the full list.
+services:
+  markloom:
+    container_name: markloom
+    image: ghcr.io/ttiimmaahh/markloom:latest
+    ports:
+      - "8674:8000"          # host:container — visit http://localhost:8674
+    volumes:
+      - ./data:/data         # persists the SQLite db + converted markdown
+    environment:
+      - RETENTION_DAYS=30         # auto-delete conversions older than N days (0 = keep forever)
+      - MAX_UPLOAD_MB=50          # reject uploads larger than this
+      # - WORKER_THREADS=2        # concurrent conversions
+      # - ALLOWED_EXTENSIONS=pdf,docx,pptx,xlsx,xls,html,htm,csv,json,xml,txt,md,epub
+      # Uncomment BOTH to require a login (recommended if not on a trusted LAN):
+      # - AUTH_USERNAME=changeme
+      # - AUTH_PASSWORD=changeme
+      # Optional: bring your own OpenAI-compatible LLM to describe images.
+      # Point LLM_BASE_URL at OpenAI or a local server (Ollama, LM Studio, ...).
+      # - LLM_BASE_URL=https://api.openai.com/v1
+      # - LLM_API_KEY=sk-...
+      # - LLM_MODEL=gpt-4o-mini
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
