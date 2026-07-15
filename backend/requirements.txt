@@ -17,3 +17,10 @@ openai
 # Powers "Enhanced" conversion: OCRs images embedded in PDF/DOCX/PPTX/XLSX via
 # the configured vision LLM. Registered as a MarkItDown plugin.
 markitdown-ocr
+
+# Local, private audio transcription (mp3/wav/m4a/ogg/flac -> Markdown transcript).
+# Runs in-process on CPU; decodes audio via bundled PyAV/ffmpeg, so NO system
+# ffmpeg package is needed. Model weights download once on first use into
+# DATA_DIR/models. We use this instead of markitdown[audio-transcription], whose
+# path calls Google's online API. (The BYO endpoint path reuses `openai` above.)
+faster-whisper

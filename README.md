@@ -83,11 +83,17 @@ the LLM option, and adding more file formats.
 
 ## Supported formats
 
-Supported formats are defined by the MarkItDown extras installed in
-[`backend/requirements.txt`](backend/requirements.txt). Out of the box:
-**PDF, DOCX, PPTX, XLSX, XLS**, plus text-like formats (HTML, CSV, JSON, XML,
-TXT, Markdown). To add more, add the extra to `requirements.txt` and the
-extension to `ALLOWED_EXTENSIONS`.
+Documents supported out of the box: **PDF, DOCX, PPTX, XLSX, XLS**, plus
+text-like formats (HTML, CSV, JSON, XML, TXT, Markdown, EPUB) — defined by the
+MarkItDown extras installed in [`backend/requirements.txt`](backend/requirements.txt).
+To add more, add the extra to `requirements.txt` and the extension to
+`ALLOWED_EXTENSIONS`.
+
+**Audio** (`MP3, WAV, M4A, OGG, FLAC`) is transcribed to a timestamped Markdown
+transcript by a **bundled local whisper** model — private, runs on CPU, no
+external service and no LLM required. Optionally offload to a bring-your-own
+OpenAI-compatible endpoint. See
+[docs/configuration.md](docs/configuration.md#audio-transcription).
 
 ## Conversion quality — what to expect
 
@@ -118,15 +124,15 @@ breakdown and Enhanced-mode trade-offs.
 
 Markloom is being actively built out. Planned next:
 
-- 🎙️ **Audio transcription** — drop an `.mp3`/`.wav`/`.m4a` and get a Markdown
-  transcript, via a **bundled local whisper** (no external service, fully
-  private), with an optional bring-your-own transcription endpoint
+- 🗣️ **Speaker diarization** — label who's speaking in a transcript
+  (`Speaker 1` / `Speaker 2`), opt-in on top of audio transcription
 - 🔗 **URL & YouTube input** — convert a web page or a YouTube transcript, not
   just uploaded files
 - 🗜️ **More inputs** — ZIP archives (convert everything inside into one document)
-  plus `.msg` (Outlook), `.epub`, and `.ipynb`
+  plus `.msg` (Outlook) and `.ipynb`
 
-Recently shipped: per-file **Enhanced** (LLM OCR) mode, conversion history with
+Recently shipped: 🎙️ **audio transcription** (bundled local whisper, timestamped
+transcripts), per-file **Enhanced** (LLM OCR) mode, conversion history with
 delete, and in-place schema migrations.
 
 ## Development

@@ -67,7 +67,7 @@ export function Dropzone({
                 : "Drag & drop a file, or click to browse"}
           </p>
           <p className="mt-1 text-sm text-muted-foreground">
-            PDF, DOCX, PPTX, XLSX and more — converted to clean Markdown
+            PDF, DOCX, PPTX, XLSX, audio and more — converted to clean Markdown
           </p>
         </div>
       </div>
