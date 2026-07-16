@@ -5,6 +5,7 @@ download weights on first use, so we monkeypatch the two transcription paths and
 assert the *dispatch* logic instead. The genuine end-to-end run (local whisper on
 a real clip) is done manually — see the audio feature notes.
 """
+
 from pathlib import Path
 
 import pytest
@@ -21,13 +22,15 @@ def test_audio_extensions_allowed_by_default():
 
 def test_format_timestamp():
     assert converter._format_timestamp(0) == "0:00"
-    assert converter._format_timestamp(4.9) == "0:04"       # truncates, not rounds
+    assert converter._format_timestamp(4.9) == "0:04"  # truncates, not rounds
     assert converter._format_timestamp(75) == "1:15"
-    assert converter._format_timestamp(3661) == "1:01:01"    # rolls over to H:MM:SS
+    assert converter._format_timestamp(3661) == "1:01:01"  # rolls over to H:MM:SS
 
 
 def test_render_transcript_timestamps_and_skips_empty():
-    md = converter._render_transcript([(0.0, "Hello there."), (5.0, "   "), (9.0, " Second. ")])
+    md = converter._render_transcript(
+        [(0.0, "Hello there."), (5.0, "   "), (9.0, " Second. ")]
+    )
     assert md == "**[0:00]** Hello there.\n\n**[0:09]** Second.\n"
 
 
@@ -57,13 +60,22 @@ def test_convert_routes_audio_to_transcription(monkeypatch):
 
 
 def test_convert_non_audio_still_uses_markitdown(monkeypatch):
-    monkeypatch.setattr(converter, "_transcribe", lambda p: (_ for _ in ()).throw(
-        AssertionError("non-audio must not be transcribed")))
+    monkeypatch.setattr(
+        converter,
+        "_transcribe",
+        lambda p: (_ for _ in ()).throw(
+            AssertionError("non-audio must not be transcribed")
+        ),
+    )
 
     class _Result:
         text_content = "# ok"
 
-    monkeypatch.setattr(converter, "_standard", lambda: type("E", (), {"convert": lambda self, p: _Result()})())
+    monkeypatch.setattr(
+        converter,
+        "_standard",
+        lambda: type("E", (), {"convert": lambda self, p: _Result()})(),
+    )
     assert converter.convert("doc.html") == "# ok"
 
 

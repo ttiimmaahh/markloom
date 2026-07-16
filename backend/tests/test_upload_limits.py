@@ -6,6 +6,7 @@ copy (for chunked bodies or a lying header). These tests exercise the
 user-visible contract: an over-limit upload gets a 413 and leaves nothing
 behind on disk or in the job history.
 """
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -33,7 +34,10 @@ def test_oversized_upload_rejected_413(client, one_mb_limit):
 
 def test_oversized_upload_leaves_no_job_or_file(client, one_mb_limit):
     before = {j["id"] for j in client.get("/api/jobs").json()}
-    client.post("/api/convert", files={"file": ("big.txt", b"x" * (2 * 1024 * 1024), "text/plain")})
+    client.post(
+        "/api/convert",
+        files={"file": ("big.txt", b"x" * (2 * 1024 * 1024), "text/plain")},
+    )
     after = {j["id"] for j in client.get("/api/jobs").json()}
     assert before == after
     upload_dir = get_settings().upload_dir

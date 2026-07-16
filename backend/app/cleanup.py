@@ -3,6 +3,7 @@
 A daily APScheduler job purges jobs older than RETENTION_DAYS and unlinks their
 Markdown files. Disabled automatically when retention is <= 0 (keep forever).
 """
+
 from __future__ import annotations
 
 import logging
@@ -43,7 +44,9 @@ def start() -> None:
     # next_run_time=now: an interval trigger's first fire is otherwise one full
     # interval after start, so a container restarted more often than every 24h
     # would NEVER sweep. Running once at startup makes retention restart-proof.
-    _scheduler.add_job(sweep, "interval", hours=24, id="cleanup", next_run_time=datetime.now())
+    _scheduler.add_job(
+        sweep, "interval", hours=24, id="cleanup", next_run_time=datetime.now()
+    )
     _scheduler.start()
     log.info("cleanup scheduled every 24h (retention=%d days)", settings.retention_days)
 

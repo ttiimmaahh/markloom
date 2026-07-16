@@ -8,6 +8,7 @@ Design notes:
   (producer), the worker (consumer), and the cleanup scheduler. The state
   machine that governs its `status` column lives in jobs.py.
 """
+
 from __future__ import annotations
 
 import sqlite3

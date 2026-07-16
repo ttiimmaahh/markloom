@@ -4,7 +4,9 @@ All configuration is via environment variables. In Docker, set them under
 `environment:` in `compose.yaml`, or use an `.env` file (see `.env.example`).
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
+| `PUID` | `1000` | Numeric host user ID used by Compose for the app process and `./data` ownership. |
+| `PGID` | `1000` | Numeric host group ID used by Compose for the app process and `./data` ownership. |
 | `DATA_DIR` | `/data` | Root for the SQLite db and converted Markdown. Mount this as a volume so data survives restarts. |
 | `RETENTION_DAYS` | `30` | Auto-delete conversions older than this many days. `0` disables expiry (keep forever). |
 | `MAX_UPLOAD_MB` | `50` | Reject uploads larger than this. |
@@ -20,6 +22,11 @@ All configuration is via environment variables. In Docker, set them under
 | `LLM_BASE_URL` | _(unset)_ | OpenAI-compatible API base URL (e.g. `https://api.openai.com/v1`, or a local server). Optional. |
 | `LLM_API_KEY` | _(unset)_ | API key for the LLM endpoint. Set with `LLM_MODEL` to enable image descriptions. |
 | `LLM_MODEL` | _(unset)_ | Vision-capable model name (e.g. `gpt-4o-mini`). Set with `LLM_API_KEY` to enable. |
+
+Markloom supports one application process per `DATA_DIR`, as configured by the
+provided Docker image. Do not add multiple Uvicorn workers or run multiple
+containers against the same SQLite database: startup recovery assumes any
+`processing` row belongs to an interrupted process.
 
 ## Enabling authentication
 
@@ -52,19 +59,24 @@ credentials. If either is missing, auth is disabled.
 
 ## File permissions
 
-The container runs as a non-root user (uid **1000**). A named Docker volume
-inherits the right ownership automatically. With a host bind-mount (the
-`./data:/data` examples above), the host directory keeps its own owner — if it
-isn't writable by uid 1000 the container will fail at startup with a permission
-error. Fix with:
+Markloom runs as a non-root user. The provided Compose files start a short-lived
+`markloom-permissions` service as root with access only to the data mount. It
+creates Docker's missing `./data` bind source when necessary, changes its
+ownership to `PUID:PGID`, exits, and only then starts the non-root application.
+This makes a first run and an upgrade from an older root-running image work
+without a manual `chown`.
+
+`PUID` and `PGID` default to `1000`. Compose reads overrides from the shell or the
+project's `.env` file. On a host where your account uses different IDs:
 
 ```bash
-sudo chown -R 1000:1000 ./data
+PUID=$(id -u) PGID=$(id -g) docker compose up -d
 ```
 
-> [!IMPORTANT]
-> **Upgrading from an older image?** Earlier images ran as root, so an existing
-> `./data` directory is likely root-owned and needs the `chown` above once.
+These variables are Compose controls, not passive application settings: the init
+service applies the ownership and the main service runs with the same numeric
+identity. A custom `docker run` command or Compose file that omits the init
+service must instead use a named volume or pre-create/chown its bind directory.
 
 ## Optional LLM — "Enhanced" conversion
 
@@ -92,6 +104,13 @@ Enhanced is **much slower** (a model call per embedded image) and **may contain
 OCR errors** — great for making screenshots searchable, not a verbatim record.
 It does **not** reconstruct born-digital PDF tables/layout (that's Azure Document
 Intelligence). See [conversion-quality.md](conversion-quality.md) for details.
+
+Queued conversions and active Enhanced document conversions expose a **Stop**
+action in history. Enhanced work runs in a supervised child process, so stopping
+it terminates Markloom's local request and prevents any result from being
+committed. A remote provider that ignores client disconnects may continue to
+completion and may still charge for that work. Standard and audio conversions
+run in-process and can only be stopped while they are still queued.
 
 ## Audio transcription
 

@@ -3,9 +3,9 @@
 **/dist
 **/__pycache__
 **/*.pyc
-.venv
-.venv-test
-venv
+**/.venv*
+**/venv
+.pi-subagents
 data
 .git
 .env

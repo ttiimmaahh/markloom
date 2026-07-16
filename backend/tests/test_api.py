@@ -1,8 +1,9 @@
 import time
 
-import pytest
-from fastapi.testclient import TestClient
+import pytest  # pyright: ignore[reportMissingImports]
+from fastapi.testclient import TestClient  # pyright: ignore[reportMissingImports]
 
+from app.jobs import ConversionMode, cancel_job, create_job, delete_job
 from app.main import app
 
 
@@ -45,14 +46,18 @@ def test_convert_html_to_markdown(client):
 
 
 def test_history_lists_job(client):
-    r = client.post("/api/convert", files={"file": ("note.html", b"<p>hi</p>", "text/html")})
+    r = client.post(
+        "/api/convert", files={"file": ("note.html", b"<p>hi</p>", "text/html")}
+    )
     job_id = r.json()["id"]
     _wait_for_settle(client, job_id)
     assert any(j["id"] == job_id for j in client.get("/api/jobs").json())
 
 
 def test_unsupported_type_rejected(client):
-    r = client.post("/api/convert", files={"file": ("x.zzz", b"data", "application/octet-stream")})
+    r = client.post(
+        "/api/convert", files={"file": ("x.zzz", b"data", "application/octet-stream")}
+    )
     assert r.status_code == 415
 
 
@@ -71,7 +76,9 @@ def test_download_before_done_conflicts(client):
 
 
 def test_delete_job(client):
-    r = client.post("/api/convert", files={"file": ("del.html", b"<p>bye</p>", "text/html")})
+    r = client.post(
+        "/api/convert", files={"file": ("del.html", b"<p>bye</p>", "text/html")}
+    )
     job_id = r.json()["id"]
     _wait_for_settle(client, job_id)
 
@@ -87,6 +94,23 @@ def test_delete_unknown_404(client):
     assert client.delete("/api/jobs/does-not-exist").status_code == 404
 
 
+def test_cancel_job_is_idempotent_and_visible(client):
+    job = create_job("stopped.pdf", "pdf", 4, mode=ConversionMode.ENHANCED)
+    cancel_job(job.id)
+    try:
+        r = client.post(f"/api/jobs/{job.id}/cancel")
+        assert r.status_code == 200
+        assert r.json()["status"] == "canceled"
+        assert not r.json()["can_cancel"]
+        assert r.json()["download_url"] is None
+    finally:
+        delete_job(job.id)
+
+
+def test_cancel_unknown_404(client):
+    assert client.post("/api/jobs/does-not-exist/cancel").status_code == 404
+
+
 def test_capabilities_reports_llm_disabled(client):
     # No LLM configured in the test environment; version defaults to "dev"
     # outside a release image build.
@@ -97,7 +121,9 @@ def test_capabilities_reports_llm_disabled(client):
 
 
 def test_standard_conversion_reports_mode(client):
-    r = client.post("/api/convert", files={"file": ("m.html", b"<p>x</p>", "text/html")})
+    r = client.post(
+        "/api/convert", files={"file": ("m.html", b"<p>x</p>", "text/html")}
+    )
     assert r.json()["mode"] == "standard"
 
 

@@ -16,7 +16,8 @@ markloom/
 │  │  ├─ jobs.py           # Job model + status state machine + queue ops
 │  │  ├─ storage.py        # upload/markdown path conventions
 │  │  ├─ converter.py      # thin MarkItDown wrapper (error mapping)
-│  │  ├─ worker.py         # ThreadPoolExecutor background worker
+│  │  ├─ conversion_subprocess.py # killable Enhanced conversion entry point
+│  │  ├─ worker.py         # threads + Enhanced child-process supervision
 │  │  ├─ cleanup.py        # APScheduler auto-expire sweep
 │  │  ├─ auth.py           # optional env-gated HTTP Basic auth
 │  │  └─ main.py           # FastAPI app: routes, middleware, static SPA
@@ -38,12 +39,14 @@ Everything talks through the single `jobs` table in SQLite:
 - **`main.py`** (producer) validates an upload, saves the original, inserts a
   `queued` job, and nudges the worker.
 - **`worker.py`** (consumer) atomically claims `queued → processing`, runs
-  MarkItDown off the event loop, writes the `.md`, deletes the original
-  (markdown-only retention), and marks the job `done` or `failed`.
-- **`cleanup.py`** periodically deletes expired rows and their `.md` files.
-- **`jobs.py`** owns the status state machine (`can_transition`) that every
-  status change is validated against, plus crash recovery for jobs interrupted
-  mid-conversion.
+  Standard/audio work in threads, and supervises Enhanced work in a killable
+  child process. It writes the `.md`, deletes the original (markdown-only
+  retention), and marks the job `done`, `failed`, or `canceled`.
+- **`cleanup.py`** periodically deletes expired terminal rows and their `.md`
+  files without removing active work.
+- **`jobs.py`** owns atomic status transitions, cancellation eligibility, and
+  crash recovery for jobs interrupted mid-conversion.
 
 The React SPA polls `GET /api/jobs/{id}` until a job settles, then shows a
-download link.
+download link. Cancelable rows expose `POST /api/jobs/{id}/cancel` through a
+Stop action.

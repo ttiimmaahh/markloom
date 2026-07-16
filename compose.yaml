@@ -3,17 +3,35 @@
 #
 # Every setting below is optional and shown at its default; delete a line to keep
 # the default, or change it in place. See docs/configuration.md for the full list.
+x-markloom-image: &markloom-image ghcr.io/ttiimmaahh/markloom:latest
+
 services:
+  markloom-permissions:
+    image: *markloom-image
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['chown -R "$${PUID}:$${PGID}" /data']
+    environment:
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+    volumes:
+      - ./data:/data
+    restart: "no"
+
   markloom:
     container_name: markloom
-    image: ghcr.io/ttiimmaahh/markloom:latest
+    image: *markloom-image
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      markloom-permissions:
+        condition: service_completed_successfully
     ports:
-      - "8674:8000"          # host:container — visit http://localhost:8674
+      - "8674:8000" # host:container — visit http://localhost:8674
     volumes:
-      - ./data:/data         # persists the SQLite db + converted markdown
+      - ./data:/data # persists the SQLite db + converted markdown
     environment:
-      - RETENTION_DAYS=30         # auto-delete conversions older than N days (0 = keep forever)
-      - MAX_UPLOAD_MB=50          # reject uploads larger than this
+      - RETENTION_DAYS=30 # auto-delete conversions older than N days (0 = keep forever)
+      - MAX_UPLOAD_MB=50 # reject uploads larger than this
       # - WORKER_THREADS=2        # concurrent conversions
       # - ALLOWED_EXTENSIONS=pdf,docx,pptx,xlsx,xls,html,htm,csv,json,xml,txt,md,epub
       # Uncomment BOTH to require a login (recommended if not on a trusted LAN):
