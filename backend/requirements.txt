@@ -1,26 +1,29 @@
-fastapi
-uvicorn[standard]
-pydantic-settings
-python-multipart          # required by FastAPI for file uploads
-apscheduler               # nightly auto-expire sweep
+# Pinned with `~=` (compatible release) so image rebuilds are reproducible:
+# patch/bugfix updates are picked up, breaking major/minor jumps are not.
+# When bumping, update the version here and let CI's docker build + tests vet it.
+fastapi~=0.139.2
+uvicorn[standard]~=0.51.0
+pydantic-settings~=2.14
+python-multipart~=0.0.32  # required by FastAPI for file uploads
+apscheduler~=3.11         # nightly auto-expire sweep (4.x is a breaking rewrite)
 
 # MarkItDown + the document format extras this service advertises.
 # This install line IS the public contract for supported formats — add extras
 # here (and to ALLOWED_EXTENSIONS) to support more. Some extras also need system
 # packages in the Dockerfile (e.g. audio/image tooling); the doc formats below
 # are pure-Python.
-markitdown[pdf,docx,pptx,xlsx,xls]
+markitdown[pdf,docx,pptx,xlsx,xls]~=0.1.6
 
 # Used only when the optional LLM features are configured (LLM_API_KEY/BASE_URL
 # + LLM_MODEL). Works with any OpenAI-compatible endpoint.
-openai
+openai~=2.45
 # Powers "Enhanced" conversion: OCRs images embedded in PDF/DOCX/PPTX/XLSX via
 # the configured vision LLM. Registered as a MarkItDown plugin.
-markitdown-ocr
+markitdown-ocr~=0.1.0
 
 # Local, private audio transcription (mp3/wav/m4a/ogg/flac -> Markdown transcript).
 # Runs in-process on CPU; decodes audio via bundled PyAV/ffmpeg, so NO system
 # ffmpeg package is needed. Model weights download once on first use into
 # DATA_DIR/models. We use this instead of markitdown[audio-transcription], whose
 # path calls Google's online API. (The BYO endpoint path reuses `openai` above.)
-faster-whisper
+faster-whisper~=1.2
