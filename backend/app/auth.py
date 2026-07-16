@@ -28,6 +28,12 @@ def is_authorized(auth_header: str | None) -> bool:
     if not sep:
         return False
     # compare_digest on both fields to avoid leaking length/content via timing.
-    user_ok = secrets.compare_digest(username, settings.auth_username or "")
-    pass_ok = secrets.compare_digest(password, settings.auth_password or "")
+    # Compared as UTF-8 bytes: compare_digest raises TypeError on non-ASCII str,
+    # which would 500 the request (and break non-ASCII passwords outright).
+    user_ok = secrets.compare_digest(
+        username.encode("utf-8"), (settings.auth_username or "").encode("utf-8")
+    )
+    pass_ok = secrets.compare_digest(
+        password.encode("utf-8"), (settings.auth_password or "").encode("utf-8")
+    )
     return user_ok and pass_ok

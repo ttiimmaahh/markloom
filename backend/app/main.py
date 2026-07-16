@@ -8,11 +8,12 @@ Request lifecycle for a conversion:
 from __future__ import annotations
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import cleanup
@@ -54,6 +55,32 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Markloom", lifespan=lifespan)
+
+
+# Slack on top of MAX_UPLOAD_MB for multipart framing (boundaries, part headers,
+# the `enhanced` field) so a file exactly at the limit isn't rejected.
+_MULTIPART_OVERHEAD = 64 * 1024
+
+
+# NOTE: Starlette runs middleware in reverse registration order, so this one
+# (registered first) runs INSIDE auth_middleware — auth is checked before size.
+@app.middleware("http")
+async def upload_size_guard(request: Request, call_next):
+    """Reject oversized uploads from the Content-Length header, BEFORE the
+    multipart body is parsed — otherwise the whole body gets read/spooled first
+    and a huge upload can exhaust memory or disk regardless of MAX_UPLOAD_MB.
+    Bodies without a Content-Length are capped during the chunked copy in
+    convert_endpoint instead.
+    """
+    if request.method == "POST" and request.url.path == "/api/convert":
+        declared = request.headers.get("content-length", "")
+        limit = get_settings().max_upload_bytes + _MULTIPART_OVERHEAD
+        if declared.isdigit() and int(declared) > limit:
+            return JSONResponse(
+                {"detail": f"File exceeds the {get_settings().max_upload_mb} MB limit."},
+                status_code=413,
+            )
+    return await call_next(request)
 
 
 @app.middleware("http")
@@ -109,15 +136,30 @@ async def convert_endpoint(
     if enhanced and not settings.llm_enabled:
         raise HTTPException(400, "Enhanced conversion requires an LLM to be configured.")
 
-    data = await file.read()
-    if len(data) == 0:
-        raise HTTPException(400, "Empty file.")
-    if len(data) > settings.max_upload_bytes:
-        raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit.")
+    # Copy to disk in chunks, enforcing the size cap as bytes arrive — never the
+    # whole file in memory (the Content-Length middleware can't catch chunked
+    # bodies or a lying header, so the cap is re-checked here).
+    # The upload is staged under a temp name and only renamed to the path the
+    # worker looks for AFTER the job row exists: inserting the QUEUED row first
+    # would let a worker claim the job before its file is on disk and fail it.
+    tmp = settings.upload_dir / f"{uuid.uuid4().hex}.tmp"
+    size = 0
+    try:
+        with tmp.open("wb") as out:
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > settings.max_upload_bytes:
+                    raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit.")
+                out.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "Empty file.")
 
-    mode = ConversionMode.ENHANCED if enhanced else ConversionMode.STANDARD
-    job = create_job(orig_filename=filename, file_type=ext, size_bytes=len(data), mode=mode)
-    upload_path(job.id, ext).write_bytes(data)
+        mode = ConversionMode.ENHANCED if enhanced else ConversionMode.STANDARD
+        job = create_job(orig_filename=filename, file_type=ext, size_bytes=size, mode=mode)
+        tmp.rename(upload_path(job.id, ext))
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     worker.notify()
     return _job_dict(job)
 

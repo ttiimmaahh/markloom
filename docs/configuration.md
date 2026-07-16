@@ -43,6 +43,29 @@ services:
 When both are set, every request (except the `/api/health` probe) requires the
 credentials. If either is missing, auth is disabled.
 
+> [!NOTE]
+> Basic auth is sent by the browser on every request once entered, including
+> requests triggered by other sites (CSRF). Markloom's API is low-stakes (a
+> malicious page could at worst submit a conversion), but if you expose it
+> beyond your LAN, put it behind a reverse proxy with TLS — Basic credentials
+> are plaintext over HTTP.
+
+## File permissions
+
+The container runs as a non-root user (uid **1000**). A named Docker volume
+inherits the right ownership automatically. With a host bind-mount (the
+`./data:/data` examples above), the host directory keeps its own owner — if it
+isn't writable by uid 1000 the container will fail at startup with a permission
+error. Fix with:
+
+```bash
+sudo chown -R 1000:1000 ./data
+```
+
+> [!IMPORTANT]
+> **Upgrading from an older image?** Earlier images ran as root, so an existing
+> `./data` directory is likely root-owned and needs the `chown` above once.
+
 ## Optional LLM — "Enhanced" conversion
 
 Configuring an LLM unlocks an opt-in **Enhanced** conversion mode in the UI. When

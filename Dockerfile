@@ -25,6 +25,15 @@ COPY backend/ ./
 # Built frontend assets — FastAPI serves these as static files.
 COPY --from=frontend /frontend/dist ./static
 
+# Run as a non-root user so a compromised document parser doesn't get root in
+# the container. /data is pre-created with matching ownership so a fresh named
+# volume inherits it; a host bind-mount keeps the host directory's owner — chown
+# it to uid 1000 (see docs/configuration.md#file-permissions).
+RUN useradd --uid 1000 --user-group --create-home markloom \
+    && mkdir -p /data \
+    && chown markloom:markloom /data
+USER markloom
+
 ENV DATA_DIR=/data
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
