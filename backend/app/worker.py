@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 
 from .config import get_settings
 from .converter import ConversionError, convert
@@ -60,13 +61,28 @@ class Worker:
             self._process(job)
 
     def _finish(self, job_id: str, status: JobStatus, **kw) -> None:
-        """Set a terminal status, tolerating a job that was deleted mid-convert."""
+        """Set a terminal status, tolerating a job that was deleted mid-convert.
+
+        If the row is gone (or the transition is rejected), the markdown we just
+        wrote is unreachable — no DB row will ever point at it — so unlink it
+        rather than leak it on disk forever.
+        """
         try:
             set_status(job_id, status, **kw)
         except KeyError:
             log.info("job %s vanished (deleted?) before %s; skipping", job_id, status)
+            self._discard_output(kw.get("md_path"))
         except InvalidTransition as e:
             log.warning("job %s: %s", job_id, e)
+            self._discard_output(kw.get("md_path"))
+
+    @staticmethod
+    def _discard_output(md_path: str | None) -> None:
+        if md_path:
+            try:
+                Path(md_path).unlink(missing_ok=True)
+            except OSError:
+                log.warning("could not delete orphaned markdown %s", md_path)
 
     def _process(self, job: Job) -> None:
         src = upload_path(job.id, job.file_type)

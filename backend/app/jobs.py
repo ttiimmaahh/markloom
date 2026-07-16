@@ -25,6 +25,7 @@ from enum import StrEnum
 
 from .config import get_settings
 from .db import get_connection
+from .storage import upload_path
 
 
 class JobStatus(StrEnum):
@@ -275,6 +276,9 @@ def recover_interrupted_jobs() -> int:
                 JobStatus.FAILED,
                 error=f"Interrupted by restart; gave up after {job.attempts} attempt(s).",
             )
+            # Giving up means no worker will ever process (and thus delete) the
+            # original upload — remove it now or it lingers on disk forever.
+            upload_path(job.id, job.file_type).unlink(missing_ok=True)
         else:
             set_status(job.id, JobStatus.QUEUED)
         reconciled += 1
