@@ -25,8 +25,12 @@ class Settings(BaseSettings):
 
     # --- Uploads ---
     max_upload_mb: int = 50
-    # Comma-separated list; parsed into `allowed_ext_set` below.
-    allowed_extensions: str = "pdf,docx,pptx,xlsx,xls,html,htm,csv,json,xml,txt,md,epub"
+    # Comma-separated list; parsed into `allowed_ext_set` below. The audio types
+    # (mp3/wav/m4a/ogg/flac) are transcribed, not text-extracted — see converter.py.
+    allowed_extensions: str = (
+        "pdf,docx,pptx,xlsx,xls,html,htm,csv,json,xml,txt,md,epub,"
+        "mp3,wav,m4a,ogg,flac"
+    )
 
     # --- Worker ---
     # Concurrent conversion threads (MarkItDown is sync/CPU-bound; see worker.py).
@@ -39,6 +43,22 @@ class Settings(BaseSettings):
     # Set BOTH to require login. Leave blank for open access (trusted LAN only).
     auth_username: str | None = None
     auth_password: str | None = None
+
+    # --- Audio transcription ---
+    # Dropped audio (mp3/wav/m4a/ogg/flac) is transcribed to a Markdown transcript.
+    # By default this runs a LOCAL faster-whisper model — private, no external
+    # service, no config required. `whisper_model` picks the bundled model size
+    # (tiny|base|small|medium|large-v3); larger = more accurate but slower. The
+    # weights download once on first use into DATA_DIR/models (persisted volume).
+    whisper_model: str = "base"
+
+    # Optional BYO transcription: an OpenAI-compatible /v1/audio/transcriptions
+    # endpoint. Set audio_base_url + audio_model to route audio there INSTEAD of
+    # the local whisper (e.g. to offload to a GPU box). audio_api_key is optional
+    # for a local server. See `audio_api_enabled` below.
+    audio_base_url: str | None = None
+    audio_api_key: str | None = None
+    audio_model: str | None = None
 
     # --- Optional LLM enhancement (OpenAI-compatible) ---
     # When llm_api_key and llm_model are both set, MarkItDown uses this model to
@@ -78,6 +98,13 @@ class Settings(BaseSettings):
     @property
     def auth_enabled(self) -> bool:
         return bool(self.auth_username and self.auth_password)
+
+    @property
+    def audio_api_enabled(self) -> bool:
+        # BYO transcription is on when a model plus a base URL are set (mirrors
+        # llm_enabled: a local server needs no key). Otherwise audio falls back to
+        # the always-available bundled whisper.
+        return bool(self.audio_model and self.audio_base_url)
 
     @property
     def llm_enabled(self) -> bool:

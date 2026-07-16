@@ -8,9 +8,13 @@ All configuration is via environment variables. In Docker, set them under
 | `DATA_DIR` | `/data` | Root for the SQLite db and converted Markdown. Mount this as a volume so data survives restarts. |
 | `RETENTION_DAYS` | `30` | Auto-delete conversions older than this many days. `0` disables expiry (keep forever). |
 | `MAX_UPLOAD_MB` | `50` | Reject uploads larger than this. |
-| `ALLOWED_EXTENSIONS` | `pdf,docx,pptx,xlsx,xls,html,htm,csv,json,xml,txt,md,epub` | Comma-separated file extensions the service accepts. Must be backed by a matching MarkItDown extra (see below). |
+| `ALLOWED_EXTENSIONS` | `pdf,docx,…,epub,mp3,wav,m4a,ogg,flac` | Comma-separated file extensions the service accepts. Document types must be backed by a matching MarkItDown extra (see below); audio types are transcribed (see [Audio transcription](#audio-transcription)). |
 | `WORKER_THREADS` | `2` | Number of concurrent conversion threads. |
 | `MAX_ATTEMPTS` | `3` | How many times an interrupted job is retried after a restart before it is failed (poison-pill guard). |
+| `WHISPER_MODEL` | `base` | Bundled local transcription model size: `tiny`, `base`, `small`, `medium`, `large-v3`. Larger = more accurate but slower. Weights download once into `DATA_DIR/models`. |
+| `AUDIO_BASE_URL` | _(unset)_ | Optional. OpenAI-compatible `/v1/audio/transcriptions` base URL. Set with `AUDIO_MODEL` to transcribe via a remote service instead of the local model. |
+| `AUDIO_API_KEY` | _(unset)_ | API key for the transcription endpoint. Optional for a local server. |
+| `AUDIO_MODEL` | _(unset)_ | Transcription model name (e.g. `whisper-1`). Set with `AUDIO_BASE_URL` to enable BYO transcription. |
 | `AUTH_USERNAME` | _(unset)_ | Set together with `AUTH_PASSWORD` to require an HTTP Basic login. |
 | `AUTH_PASSWORD` | _(unset)_ | Set together with `AUTH_USERNAME` to require an HTTP Basic login. |
 | `LLM_BASE_URL` | _(unset)_ | OpenAI-compatible API base URL (e.g. `https://api.openai.com/v1`, or a local server). Optional. |
@@ -65,6 +69,46 @@ Enhanced is **much slower** (a model call per embedded image) and **may contain
 OCR errors** — great for making screenshots searchable, not a verbatim record.
 It does **not** reconstruct born-digital PDF tables/layout (that's Azure Document
 Intelligence). See [conversion-quality.md](conversion-quality.md) for details.
+
+## Audio transcription
+
+Drop an audio file (`.mp3`, `.wav`, `.m4a`, `.ogg`, `.flac`) and Markloom returns a
+**timestamped Markdown transcript**:
+
+```markdown
+**[0:00]** Hello and welcome to the show.
+
+**[0:05]** Today we're talking about self-hosting your own tools.
+```
+
+This works out of the box with **no configuration** — a local
+[faster-whisper](https://github.com/SYSTRAN/faster-whisper) model runs
+in-process on CPU, so audio never leaves your machine and no LLM is required.
+The model weights (~150 MB for `base`) download **once on first use** into
+`DATA_DIR/models`, so mount that volume to avoid re-downloading on every restart.
+Pick accuracy vs. speed with `WHISPER_MODEL` (`tiny`…`large-v3`).
+
+> Transcripts are machine-generated and may contain errors — verify critical
+> details against the audio.
+
+### Bring your own transcription endpoint
+
+To offload transcription (e.g. to a GPU box) instead of running it locally, point
+Markloom at any OpenAI-compatible `/v1/audio/transcriptions` endpoint:
+
+```yaml
+    environment:
+      - AUDIO_BASE_URL=https://api.openai.com/v1
+      - AUDIO_API_KEY=sk-...
+      - AUDIO_MODEL=whisper-1
+      # ...or a local server (no key needed):
+      # - AUDIO_BASE_URL=http://host.docker.internal:8080/v1
+      # - AUDIO_MODEL=whisper-1
+```
+
+When both `AUDIO_BASE_URL` and `AUDIO_MODEL` are set, audio is sent there instead
+of to the bundled model. Timestamps come from the endpoint's `verbose_json`
+response; a server that doesn't support segments yields a single untimed block.
 
 ## Adding more file formats
 

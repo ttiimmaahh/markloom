@@ -76,18 +76,42 @@ All configuration is via environment variables (see [`.env.example`](.env.exampl
 | `MAX_ATTEMPTS` | `3` | Retries for a job interrupted by a restart before it's failed |
 | `AUTH_USERNAME` | _(unset)_ | Set with `AUTH_PASSWORD` to require login |
 | `AUTH_PASSWORD` | _(unset)_ | Set with `AUTH_USERNAME` to require login |
+| `WHISPER_MODEL` | `base` | Bundled local faster-whisper model size (`tiny` through `large-v3`) |
+| `AUDIO_BASE_URL` / `AUDIO_API_KEY` / `AUDIO_MODEL` | _(unset)_ | Optional: an OpenAI-compatible transcription endpoint used instead of bundled whisper |
 | `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL` | _(unset)_ | Optional: a vision LLM (any OpenAI-compatible endpoint) that unlocks the per-file **Enhanced** OCR mode (see below) |
 
 See [docs/configuration.md](docs/configuration.md) for enabling authentication,
-the LLM option, and adding more file formats.
+the model options, and adding more file formats.
+
+### Tested model recommendations
+
+These are known-good starting points tested with Markloom and
+[oMLX](https://github.com/jundot/omlx). Other OpenAI-compatible models and
+servers may also work.
+
+| Use | Recommended model | Notes |
+|---|---|---|
+| Audio transcription | [`mlx-community/whisper-large-v3-turbo-asr-fp16`](https://huggingface.co/mlx-community/whisper-large-v3-turbo-asr-fp16) | Purpose-built MLX Audio export with the processor/tokenizer files oMLX requires. Configure its oMLX model ID or alias as `AUDIO_MODEL`. |
+| Enhanced image OCR | [`mlx-community/Qwen2.5-VL-7B-Instruct-4bit`](https://huggingface.co/mlx-community/Qwen2.5-VL-7B-Instruct-4bit) | Vision-capable MLX model suitable for screenshot, scan, and diagram transcription. Configure its oMLX model ID or alias as `LLM_MODEL`. |
+
+> [!IMPORTANT]
+> For oMLX audio, use the `-asr-fp16` Whisper repository above. The similarly
+> named `mlx-community/whisper-large-v3-turbo` repository omits Hugging Face
+> processor metadata and will fail to load as an STT model in oMLX.
 
 ## Supported formats
 
-Supported formats are defined by the MarkItDown extras installed in
-[`backend/requirements.txt`](backend/requirements.txt). Out of the box:
-**PDF, DOCX, PPTX, XLSX, XLS**, plus text-like formats (HTML, CSV, JSON, XML,
-TXT, Markdown). To add more, add the extra to `requirements.txt` and the
-extension to `ALLOWED_EXTENSIONS`.
+Documents supported out of the box: **PDF, DOCX, PPTX, XLSX, XLS**, plus
+text-like formats (HTML, CSV, JSON, XML, TXT, Markdown, EPUB) — defined by the
+MarkItDown extras installed in [`backend/requirements.txt`](backend/requirements.txt).
+To add more, add the extra to `requirements.txt` and the extension to
+`ALLOWED_EXTENSIONS`.
+
+**Audio** (`MP3, WAV, M4A, OGG, FLAC`) is transcribed to a timestamped Markdown
+transcript by a **bundled local whisper** model — private, runs on CPU, no
+external service and no LLM required. Optionally offload to a bring-your-own
+OpenAI-compatible endpoint. See
+[docs/configuration.md](docs/configuration.md#audio-transcription).
 
 ## Conversion quality — what to expect
 
@@ -107,7 +131,7 @@ quality depends on how much **structure** the source format carries:
 **Optional "Enhanced" mode:** configure a vision-capable LLM (`LLM_BASE_URL` /
 `LLM_API_KEY` / `LLM_MODEL` — any OpenAI-compatible endpoint, including a local
 Ollama/LM Studio/mlx-vlm server) and a per-file **Enhanced** toggle appears. It
-OCRs text out of *images* embedded in documents — great for screenshot-heavy
+OCRs text out of _images_ embedded in documents — great for screenshot-heavy
 PDFs — but it's much slower and may contain OCR errors, so it's opt-in per file
 and never the default. It does **not** reconstruct born-digital PDF tables.
 
@@ -118,15 +142,15 @@ breakdown and Enhanced-mode trade-offs.
 
 Markloom is being actively built out. Planned next:
 
-- 🎙️ **Audio transcription** — drop an `.mp3`/`.wav`/`.m4a` and get a Markdown
-  transcript, via a **bundled local whisper** (no external service, fully
-  private), with an optional bring-your-own transcription endpoint
+- 🗣️ **Speaker diarization** — label who's speaking in a transcript
+  (`Speaker 1` / `Speaker 2`), opt-in on top of audio transcription
 - 🔗 **URL & YouTube input** — convert a web page or a YouTube transcript, not
   just uploaded files
 - 🗜️ **More inputs** — ZIP archives (convert everything inside into one document)
-  plus `.msg` (Outlook), `.epub`, and `.ipynb`
+  plus `.msg` (Outlook) and `.ipynb`
 
-Recently shipped: per-file **Enhanced** (LLM OCR) mode, conversion history with
+Recently shipped: 🎙️ **audio transcription** (bundled local whisper, timestamped
+transcripts), per-file **Enhanced** (LLM OCR) mode, conversion history with
 delete, and in-place schema migrations.
 
 ## Development
