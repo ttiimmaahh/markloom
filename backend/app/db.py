@@ -67,19 +67,45 @@ def _rename_legacy_db(settings) -> None:
                 src.rename(new.parent / (new.name + suffix))
 
 
+def _permission_hint(settings) -> str:
+    return (
+        f"Cannot write to DATA_DIR ({settings.data_dir}). The container runs as a "
+        "non-root user (uid 1000) since v0.2.5 — a data directory created by an "
+        "older (root-running) image, or auto-created by Docker for a bind mount, "
+        "is root-owned and unwritable. Fix ownership on the HOST, then restart:\n"
+        "    sudo chown -R 1000:1000 <host data directory>\n"
+        "See docs/configuration.md#file-permissions."
+    )
+
+
+# sqlite3.OperationalError messages that mean "permissions", as opposed to
+# disk-full/corruption — only these get translated into the chown hint.
+_SQLITE_PERMISSION_SIGNATURES = ("unable to open database file", "readonly database")
+
+
 def init_db() -> None:
     """Create data directories, the jobs table, and migrate missing columns.
 
     Idempotent; safe to call on every startup. Preserves existing rows.
+    Permission failures (the classic root-owned volume after the v0.2.5
+    non-root change) are re-raised with the exact fix, since this runs at
+    startup and its traceback is the first thing in `docker logs`.
     """
     settings = get_settings()
-    for d in (settings.data_dir, settings.markdown_dir, settings.upload_dir):
-        d.mkdir(parents=True, exist_ok=True)
-    _rename_legacy_db(settings)
-    with get_connection() as conn:
-        conn.execute("PRAGMA journal_mode=WAL;")
-        conn.executescript(SCHEMA)
-        _migrate(conn)
+    try:
+        for d in (settings.data_dir, settings.markdown_dir, settings.upload_dir):
+            d.mkdir(parents=True, exist_ok=True)
+        _rename_legacy_db(settings)
+        with get_connection() as conn:
+            conn.execute("PRAGMA journal_mode=WAL;")
+            conn.executescript(SCHEMA)
+            _migrate(conn)
+    except PermissionError as e:
+        raise RuntimeError(_permission_hint(settings)) from e
+    except sqlite3.OperationalError as e:
+        if any(sig in str(e) for sig in _SQLITE_PERMISSION_SIGNATURES):
+            raise RuntimeError(_permission_hint(settings)) from e
+        raise
 
 
 @contextmanager
