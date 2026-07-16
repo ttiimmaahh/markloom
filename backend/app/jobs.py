@@ -11,10 +11,10 @@ Every component talks through the `status` column rather than to each other:
   - the worker claims QUEUED -> PROCESSING and finishes DONE/FAILED,
   - the cleanup scheduler deletes old rows.
 
-Almost everything below is mechanical and provided. The TWO functions at the
-bottom — can_transition() and recover_interrupted_jobs() — encode *decisions*,
-not mechanics, so they are left for you to implement. The rest of the module
-already calls them, so the app is wired to your policy the moment you fill them.
+Most of the module is mechanical CRUD. The policy lives in two places:
+can_transition() (which moves the state machine allows — DONE/FAILED are
+terminal) and recover_interrupted_jobs() (what happens to jobs stranded in
+PROCESSING by a crash: re-queue until attempts run out, then fail).
 """
 from __future__ import annotations
 
