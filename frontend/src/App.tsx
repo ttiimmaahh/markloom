@@ -12,10 +12,14 @@ import { fetchCapabilities } from "@/lib/api";
 export default function App() {
   const { jobs, error, refresh } = useJobs();
   const [llmAvailable, setLlmAvailable] = useState(false);
+  const [version, setVersion] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCapabilities()
-      .then((c) => setLlmAvailable(c.llm_available))
+      .then((c) => {
+        setLlmAvailable(c.llm_available);
+        setVersion(c.version);
+      })
       .catch(() => setLlmAvailable(false));
   }, []);
 
@@ -58,17 +62,22 @@ export default function App() {
           </CardContent>
         </Card>
 
-        <p className="text-center text-xs text-muted-foreground">
-          Powered by{" "}
-          <a
-            className="underline underline-offset-2 hover:text-foreground"
-            href="https://github.com/microsoft/markitdown"
-            target="_blank"
-            rel="noreferrer"
-          >
-            MarkItDown
-          </a>
-        </p>
+        <footer className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>
+            Markloom{version ? ` ${version === "dev" ? "dev" : `v${version}`}` : ""}
+          </span>
+          <span>
+            Powered by{" "}
+            <a
+              className="underline underline-offset-2 hover:text-foreground"
+              href="https://github.com/microsoft/markitdown"
+              target="_blank"
+              rel="noreferrer"
+            >
+              MarkItDown
+            </a>
+          </span>
+        </footer>
       </main>
     </div>
   );

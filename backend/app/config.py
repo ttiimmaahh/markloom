@@ -15,6 +15,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    # --- Version ---
+    # Baked into the Docker image at build time from the release tag (see
+    # publish.yml's build-args). "dev" everywhere else; shown in the UI footer.
+    app_version: str = "dev"
+
     # --- Storage ---
     # Root for the SQLite db + converted markdown. Mounted as a volume in compose.
     data_dir: Path = Path("/data")

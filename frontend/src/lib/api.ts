@@ -16,6 +16,8 @@ export interface Job {
 
 export interface Capabilities {
   llm_available: boolean;
+  /** Release version baked into the image (e.g. "1.2.0"), or "dev". */
+  version: string;
 }
 
 async function handle<T>(res: Response): Promise<T> {

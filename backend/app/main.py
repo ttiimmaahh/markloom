@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI):
     cleanup.stop()
 
 
-app = FastAPI(title="Markloom", lifespan=lifespan)
+app = FastAPI(title="Markloom", version=get_settings().app_version, lifespan=lifespan)
 
 
 # Slack on top of MAX_UPLOAD_MB for multipart framing (boundaries, part headers,
@@ -118,8 +118,9 @@ def health() -> dict:
 
 @app.get("/api/capabilities")
 def capabilities() -> dict:
-    """What optional features are configured — the SPA uses this to show/hide UI."""
-    return {"llm_available": get_settings().llm_enabled}
+    """Server metadata the SPA reads on load: optional-feature flags + version."""
+    settings = get_settings()
+    return {"llm_available": settings.llm_enabled, "version": settings.app_version}
 
 
 @app.post("/api/convert", status_code=202)

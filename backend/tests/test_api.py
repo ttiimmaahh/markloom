@@ -88,8 +88,12 @@ def test_delete_unknown_404(client):
 
 
 def test_capabilities_reports_llm_disabled(client):
-    # No LLM configured in the test environment.
-    assert client.get("/api/capabilities").json() == {"llm_available": False}
+    # No LLM configured in the test environment; version defaults to "dev"
+    # outside a release image build.
+    assert client.get("/api/capabilities").json() == {
+        "llm_available": False,
+        "version": "dev",
+    }
 
 
 def test_standard_conversion_reports_mode(client):
