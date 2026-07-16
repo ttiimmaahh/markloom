@@ -3,6 +3,7 @@
 Keeping these in one place guarantees the upload the API saves is the exact path
 the worker later reads and deletes.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

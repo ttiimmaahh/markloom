@@ -5,6 +5,7 @@ Active only when BOTH AUTH_USERNAME and AUTH_PASSWORD are set
 never on the public internet. Enforced as middleware in main.py so it covers
 both the API and the static SPA.
 """
+
 from __future__ import annotations
 
 import base64

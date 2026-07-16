@@ -20,24 +20,67 @@ and gives you a download link. Runs as a single Docker container.
 
 - 📥 **Drag-and-drop** conversion of PDF, DOCX, PPTX, XLSX, and more
 - ⚙️ **Background processing** with live status — big files don't block the UI
+- 🛑 **Stop stuck conversions** — queued work and active Enhanced requests are cancelable
 - 🕘 **Conversion history** stored in SQLite, with per-item delete
 - ✨ **Optional "Enhanced" mode** — bring your own LLM to OCR text out of images
 - 🧹 **Auto-expire** old files on a configurable retention window
 - 🔒 **Optional login** (HTTP Basic) — off by default, one env var to enable
-- 🐳 **One container**, one `docker compose up`
+- 🐳 **One command** — `docker compose up`
 
 ## Quick start
 
 Save this as `compose.yaml`:
 
 ```yaml
+x-markloom-image: &markloom-image ghcr.io/ttiimmaahh/markloom:latest
+
 services:
+  markloom-permissions:
+    image: *markloom-image
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['chown -R "$${PUID}:$${PGID}" /data']
+    environment:
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+    volumes:
+      - ./data:/data
+
   markloom:
-    image: ghcr.io/ttiimmaahh/markloom:latest
+    image: *markloom-image
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      markloom-permissions:
+        condition: service_completed_successfully
     ports:
       - "8674:8000"
     volumes:
       - ./data:/data
+
+    # Optional settings: uncomment `environment:` and only the values you want
+    # to change. See docs/configuration.md for every option.
+    # environment:
+    #   RETENTION_DAYS: "30" # 0 keeps converted files forever
+    #   MAX_UPLOAD_MB: "50"
+    #   WORKER_THREADS: "2"
+    #
+    #   # Require a login (uncomment both):
+    #   AUTH_USERNAME: admin
+    #   AUTH_PASSWORD: change-me
+    #
+    #   # Bundled local audio transcription model:
+    #   WHISPER_MODEL: base # tiny, base, small, medium, or large-v3
+    #
+    #   # Optional OpenAI-compatible audio transcription endpoint:
+    #   AUDIO_BASE_URL: https://api.openai.com/v1
+    #   AUDIO_API_KEY: sk-...
+    #   AUDIO_MODEL: whisper-1
+    #
+    #   # Optional vision LLM for Enhanced conversion:
+    #   LLM_BASE_URL: https://api.openai.com/v1
+    #   LLM_API_KEY: sk-...
+    #   LLM_MODEL: gpt-4o-mini
+
     restart: unless-stopped
 ```
 
@@ -67,7 +110,8 @@ documented in the [full compose file](compose.yaml) and
 All configuration is via environment variables (see [`.env.example`](.env.example)):
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
+| `PUID` / `PGID` | `1000` | Host identity used by Compose for the app and `./data` ownership |
 | `DATA_DIR` | `/data` | Where the SQLite db and converted Markdown live |
 | `RETENTION_DAYS` | `30` | Auto-delete conversions older than this. `0` = keep forever |
 | `MAX_UPLOAD_MB` | `50` | Reject uploads larger than this |
@@ -90,7 +134,7 @@ These are known-good starting points tested with Markloom and
 servers may also work.
 
 | Use | Recommended model | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Audio transcription | [`mlx-community/whisper-large-v3-turbo-asr-fp16`](https://huggingface.co/mlx-community/whisper-large-v3-turbo-asr-fp16) | Purpose-built MLX Audio export with the processor/tokenizer files oMLX requires. Configure its oMLX model ID or alias as `AUDIO_MODEL`. |
 | Enhanced image OCR | [`mlx-community/Qwen2.5-VL-7B-Instruct-4bit`](https://huggingface.co/mlx-community/Qwen2.5-VL-7B-Instruct-4bit) | Vision-capable MLX model suitable for screenshot, scan, and diagram transcription. Configure its oMLX model ID or alias as `LLM_MODEL`. |
 
@@ -209,12 +253,15 @@ Browser (React + shadcn/ui + Tailwind)
 FastAPI  ──insert QUEUED──►  SQLite (jobs table)  ◄──sweep old rows── APScheduler
                                    │
                                    ▼ claim
-                          ThreadPoolExecutor worker ──► MarkItDown ──► .md on disk
+                           worker threads ──► Standard/audio conversion
+                                   │
+                                   └────────► killable Enhanced child ──► MarkItDown
 ```
 
-Everything coordinates through one `jobs` table: the API produces jobs, a
-thread-pool worker consumes them (MarkItDown is synchronous, so it runs off the
-async loop), and a scheduler purges expired ones.
+Everything coordinates through one `jobs` table: the API produces jobs, worker
+threads consume them off the async loop, and a scheduler purges expired terminal
+rows. Enhanced document conversion runs in a supervised child process so a stuck
+LLM request can be stopped without restarting Markloom.
 
 ## Attributions
 

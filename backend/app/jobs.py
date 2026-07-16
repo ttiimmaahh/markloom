@@ -2,9 +2,9 @@
 
 Lifecycle of one conversion:
 
-    upload -> [QUEUED] --worker claims--> [PROCESSING] --+--> [DONE]    (md written)
-                                                         |
-                                                         +--> [FAILED]  (error saved)
+    upload -> [QUEUED] --worker claims--> [PROCESSING] -> [DONE] or [FAILED]
+                    |                         |
+                    +-------------------------+---------> [CANCELED]
 
 Every component talks through the `status` column rather than to each other:
   - the API inserts QUEUED rows and reads status for polling,
@@ -16,6 +16,7 @@ can_transition() (which moves the state machine allows — DONE/FAILED are
 terminal) and recover_interrupted_jobs() (what happens to jobs stranded in
 PROCESSING by a crash: re-queue until attempts run out, then fail).
 """
+
 from __future__ import annotations
 
 import uuid
@@ -23,9 +24,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 
-from .config import get_settings
+from .config import AUDIO_EXTENSIONS, get_settings
 from .db import get_connection
-from .storage import upload_path
+from .storage import markdown_path, upload_path
 
 
 class JobStatus(StrEnum):
@@ -33,6 +34,7 @@ class JobStatus(StrEnum):
     PROCESSING = "processing"
     DONE = "done"
     FAILED = "failed"
+    CANCELED = "canceled"
 
 
 class ConversionMode(StrEnum):
@@ -83,6 +85,7 @@ class Job:
 # CRUD + queue operations (mechanical — provided)
 # ---------------------------------------------------------------------------
 
+
 def create_job(
     orig_filename: str,
     file_type: str,
@@ -108,8 +111,19 @@ def create_job(
             "INSERT INTO jobs "
             "(id, orig_filename, file_type, size_bytes, status, mode, attempts, error, md_path, created_at, completed_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (job.id, job.orig_filename, job.file_type, job.size_bytes,
-             job.status, job.mode, job.attempts, job.error, job.md_path, job.created_at, job.completed_at),
+            (
+                job.id,
+                job.orig_filename,
+                job.file_type,
+                job.size_bytes,
+                job.status,
+                job.mode,
+                job.attempts,
+                job.error,
+                job.md_path,
+                job.created_at,
+                job.completed_at,
+            ),
         )
     return job
 
@@ -148,23 +162,37 @@ def set_status(
     if not can_transition(job.status, target):
         raise InvalidTransition(f"illegal transition {job.status} -> {target}")
 
-    completed_at = (
-        _utcnow_iso()
-        if target in (JobStatus.DONE, JobStatus.FAILED)
-        else job.completed_at
+    terminal = target in (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELED)
+    completed_at = _utcnow_iso() if terminal else job.completed_at
+    next_error = (
+        None
+        if target == JobStatus.CANCELED
+        else (error if error is not None else job.error)
     )
+    next_md_path = (
+        None
+        if target == JobStatus.CANCELED
+        else (md_path if md_path is not None else job.md_path)
+    )
+
+    # Compare-and-set is the linearization point for cancel vs. completion.
+    # Whichever transition updates the observed source status first wins; a late
+    # worker can never overwrite CANCELED with DONE/FAILED (or vice versa).
     with get_connection() as conn:
-        conn.execute(
-            "UPDATE jobs SET status = ?, error = ?, md_path = ?, completed_at = ? WHERE id = ?",
-            (
-                target,
-                error if error is not None else job.error,
-                md_path if md_path is not None else job.md_path,
-                completed_at,
-                job_id,
-            ),
-        )
-    return get_job(job_id)  # re-read to return the updated row
+        row = conn.execute(
+            "UPDATE jobs SET status = ?, error = ?, md_path = ?, completed_at = ? "
+            "WHERE id = ? AND status = ? RETURNING *",
+            (target, next_error, next_md_path, completed_at, job_id, job.status),
+        ).fetchone()
+    if row is not None:
+        return Job.from_row(row)
+
+    latest = get_job(job_id)
+    if latest is None:
+        raise KeyError(f"job {job_id} not found")
+    raise InvalidTransition(
+        f"job changed from {job.status} to {latest.status} before transition to {target}"
+    )
 
 
 def claim_next_queued() -> Job | None:
@@ -188,17 +216,63 @@ def claim_next_queued() -> Job | None:
     return Job.from_row(row) if row else None
 
 
-def delete_job(job_id: str) -> Job | None:
-    """Delete a job row and return it (so the caller can unlink its files).
+def can_cancel(job: Job) -> bool:
+    """Whether the job can be stopped without leaving in-process work running."""
+    if job.status == JobStatus.QUEUED:
+        return True
+    return (
+        job.status == JobStatus.PROCESSING
+        and job.mode == ConversionMode.ENHANCED
+        and job.file_type not in AUDIO_EXTENSIONS
+    )
 
-    Returns None if the job doesn't exist.
+
+def cancel_job(job_id: str) -> Job:
+    """Atomically cancel queued or killable Enhanced work.
+
+    Eligibility and transition use the same status/mode/type snapshot. If a
+    queued job is claimed between the read and update, eligibility is rechecked:
+    Enhanced documents remain cancelable, while Standard/audio work is rejected
+    once its in-process conversion has started.
     """
-    job = get_job(job_id)
-    if job is None:
-        return None
+    while True:
+        job = get_job(job_id)
+        if job is None:
+            raise KeyError(f"job {job_id} not found")
+        if job.status == JobStatus.CANCELED:
+            return job
+        if not can_cancel(job):
+            raise InvalidTransition(
+                f"job {job_id} cannot be canceled from {job.status}"
+            )
+
+        with get_connection() as conn:
+            row = conn.execute(
+                "UPDATE jobs SET status = ?, error = NULL, md_path = NULL, "
+                "completed_at = ? WHERE id = ? AND status = ? AND mode = ? "
+                "AND file_type = ? RETURNING *",
+                (
+                    JobStatus.CANCELED,
+                    _utcnow_iso(),
+                    job_id,
+                    job.status,
+                    job.mode,
+                    job.file_type,
+                ),
+            ).fetchone()
+        if row is not None:
+            return Job.from_row(row)
+        # A concurrent claim/completion/delete won. Re-read to decide whether
+        # the new state is still safely cancelable, terminal, or gone.
+
+
+def delete_job(job_id: str) -> Job | None:
+    """Atomically delete and return a job row so its files can be unlinked."""
     with get_connection() as conn:
-        conn.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
-    return job
+        row = conn.execute(
+            "DELETE FROM jobs WHERE id = ? RETURNING *", (job_id,)
+        ).fetchone()
+    return Job.from_row(row) if row else None
 
 
 def purge_expired(retention_days: int) -> list[Job]:
@@ -210,9 +284,12 @@ def purge_expired(retention_days: int) -> list[Job]:
     if retention_days <= 0:
         return []
     cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).isoformat()
+    terminal = (JobStatus.DONE, JobStatus.FAILED, JobStatus.CANCELED)
     with get_connection() as conn:
-        rows = conn.execute("SELECT * FROM jobs WHERE created_at < ?", (cutoff,)).fetchall()
-        conn.execute("DELETE FROM jobs WHERE created_at < ?", (cutoff,))
+        rows = conn.execute(
+            "DELETE FROM jobs WHERE created_at < ? AND status IN (?, ?, ?) RETURNING *",
+            (cutoff, *terminal),
+        ).fetchall()
     return [Job.from_row(r) for r in rows]
 
 
@@ -220,9 +297,9 @@ def purge_expired(retention_days: int) -> list[Job]:
 # Transition policy
 # ===========================================================================
 #
-# DONE and FAILED are TERMINAL. This is a direct consequence of markdown-only
-# retention: the worker deletes the original upload as soon as processing ends,
-# so a finished job (done or failed) has nothing left to re-convert. There is no
+# DONE, FAILED, and CANCELED are TERMINAL. This follows from markdown-only
+# retention: the worker deletes the original upload as soon as processing ends
+# or cancellation wins, so a terminal job has nothing left to re-convert. There is no
 # "retry a failed job" because the input is gone — the user re-uploads instead,
 # which creates a fresh job.
 #
@@ -230,10 +307,16 @@ def purge_expired(retention_days: int) -> list[Job]:
 # mid-convert still has its original on disk (the worker only deletes it after
 # finishing), so it is safe to re-queue. See recover_interrupted_jobs().
 _ALLOWED_TRANSITIONS: dict[JobStatus, set[JobStatus]] = {
-    JobStatus.QUEUED: {JobStatus.PROCESSING},
-    JobStatus.PROCESSING: {JobStatus.DONE, JobStatus.FAILED, JobStatus.QUEUED},
+    JobStatus.QUEUED: {JobStatus.PROCESSING, JobStatus.CANCELED},
+    JobStatus.PROCESSING: {
+        JobStatus.DONE,
+        JobStatus.FAILED,
+        JobStatus.CANCELED,
+        JobStatus.QUEUED,
+    },
     JobStatus.DONE: set(),
     JobStatus.FAILED: set(),
+    JobStatus.CANCELED: set(),
 }
 
 
@@ -250,6 +333,23 @@ def can_transition(current: JobStatus, target: JobStatus) -> bool:
 # ===========================================================================
 # Crash recovery (hybrid: retry until attempts exhausted, then fail)
 # ===========================================================================
+def _remove_interrupted_outputs(job_id: str) -> None:
+    """Best-effort cleanup for output files left by a hard process exit."""
+    output = markdown_path(job_id)
+    paths = [
+        output,
+        *output.parent.glob(f".{job_id}.*.md.tmp"),
+        *output.parent.glob(f".{job_id}.*.result.json"),
+    ]
+    for path in paths:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError:
+            # Recovery must still reconcile the durable row; retention or an
+            # operator can remove an artifact with unusual permissions later.
+            pass
+
+
 def recover_interrupted_jobs() -> int:
     """Reconcile jobs left in PROCESSING when the container died mid-convert.
 
@@ -270,6 +370,7 @@ def recover_interrupted_jobs() -> int:
     for job in list_jobs(limit=1_000_000):
         if job.status != JobStatus.PROCESSING:
             continue
+        _remove_interrupted_outputs(job.id)
         if job.attempts >= settings.max_attempts:
             set_status(
                 job.id,

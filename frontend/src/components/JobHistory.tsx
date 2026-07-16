@@ -1,9 +1,10 @@
 import { useRef } from "react";
-import { Download, FileText, Sparkles } from "lucide-react";
+import { CircleStop, Download, FileText, Sparkles } from "lucide-react";
 
 import { DeleteButton } from "@/components/DeleteButton";
 import { StatusBadge } from "@/components/StatusBadge";
-import { buttonVariants } from "@/components/ui/button";
+import { StopButton } from "@/components/StopButton";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
 	Table,
 	TableBody,
@@ -41,6 +42,14 @@ export function JobHistory({
 		historyRegionRef.current?.focus();
 	}
 
+	async function handleStopped(jobId: string) {
+		await onChanged();
+		const row = document.querySelector<HTMLElement>(
+			`[data-job-row="${jobId}"]`,
+		);
+		(row ?? historyRegionRef.current)?.focus();
+	}
+
 	return (
 		<div
 			ref={historyRegionRef}
@@ -72,7 +81,12 @@ export function JobHistory({
 					</TableHeader>
 					<TableBody>
 						{jobs.map((job) => (
-							<TableRow key={job.id}>
+							<TableRow
+								key={job.id}
+								data-job-row={job.id}
+								tabIndex={-1}
+								className="focus:outline-none focus:ring-2 focus:ring-inset focus:ring-ring"
+							>
 								<TableCell className="max-w-[16rem]">
 									<div className="flex items-center gap-2">
 										<FileText className="size-4 shrink-0 text-muted-foreground" />
@@ -118,11 +132,31 @@ export function JobHistory({
 									)}
 								</TableCell>
 								<TableCell className="text-right">
-									<DeleteButton
-										jobId={job.id}
-										filename={job.orig_filename}
-										onDeleted={handleDeleted}
-									/>
+									{job.can_cancel ? (
+										<StopButton
+											jobId={job.id}
+											filename={job.orig_filename}
+											onStopped={handleStopped}
+										/>
+									) : job.status === "processing" ? (
+										<Button
+											variant="ghost"
+											size="icon"
+											className="cursor-not-allowed opacity-50 hover:bg-transparent"
+											aria-disabled="true"
+											aria-label={`Standard and audio conversions can’t be stopped after processing begins: ${job.orig_filename}`}
+											title="Standard and audio conversions can’t be stopped after processing begins"
+											onClick={(event) => event.preventDefault()}
+										>
+											<CircleStop />
+										</Button>
+									) : (
+										<DeleteButton
+											jobId={job.id}
+											filename={job.orig_filename}
+											onDeleted={handleDeleted}
+										/>
+									)}
 								</TableCell>
 							</TableRow>
 						))}

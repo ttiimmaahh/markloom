@@ -18,9 +18,12 @@
 Every engine is built lazily so importing this module needs none of MarkItDown,
 openai, or faster-whisper installed.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
+
+from .config import AUDIO_EXTENSIONS
 
 # A prompt tuned for faithful OCR rather than loose image captioning: transcribe
 # verbatim, keep tables as Markdown, and stay silent on empty images (reduces the
@@ -31,10 +34,6 @@ OCR_PROMPT = (
     "Output only the transcribed text — no descriptions, no commentary. "
     "If the image contains no legible text, output nothing."
 )
-
-# Extensions routed to transcription instead of MarkItDown. All are decodable by
-# faster-whisper's bundled PyAV/ffmpeg, so no system ffmpeg is required.
-AUDIO_EXTENSIONS = {"mp3", "wav", "m4a", "ogg", "flac"}
 
 
 class ConversionError(Exception):
@@ -49,7 +48,7 @@ _whisper_model = None
 def _standard():
     global _standard_engine
     if _standard_engine is None:
-        from markitdown import MarkItDown
+        from markitdown import MarkItDown  # pyright: ignore[reportMissingImports]
 
         _standard_engine = MarkItDown()
     return _standard_engine
@@ -58,8 +57,8 @@ def _standard():
 def _enhanced():
     global _enhanced_engine
     if _enhanced_engine is None:
-        from markitdown import MarkItDown
-        from openai import OpenAI
+        from markitdown import MarkItDown  # pyright: ignore[reportMissingImports]
+        from openai import OpenAI  # pyright: ignore[reportMissingImports]
 
         from .config import get_settings
 
@@ -90,7 +89,10 @@ def _enhanced():
 
 def _format_timestamp(seconds: float) -> str:
     """Seconds -> M:SS, or H:MM:SS once the recording passes an hour."""
-    total = int(seconds)
+    try:
+        total = max(0, int(seconds))
+    except (TypeError, ValueError, OverflowError):
+        total = 0
     h, rem = divmod(total, 3600)
     m, s = divmod(rem, 60)
     if h:
@@ -118,7 +120,7 @@ def _transcribe_local(src_path: Path) -> list[tuple[float, str]]:
     """Transcribe with a bundled faster-whisper model (lazy, process-wide singleton)."""
     global _whisper_model
     if _whisper_model is None:
-        from faster_whisper import WhisperModel
+        from faster_whisper import WhisperModel  # pyright: ignore[reportMissingImports]
 
         from .config import get_settings
 
@@ -142,21 +144,28 @@ def _transcribe_api(src_path: Path) -> list[tuple[float, str]]:
     doesn't support it (or returns no segments), falls back to a single segment
     holding the whole transcript at 0:00.
     """
-    from openai import OpenAI
+    from openai import OpenAI  # pyright: ignore[reportMissingImports]
 
     from .config import get_settings
 
     settings = get_settings()
+    audio_model = settings.audio_model
+    audio_base_url = settings.audio_base_url
+    if not audio_model or not audio_base_url:
+        raise ConversionError("Audio transcription service is not fully configured.")
     client = OpenAI(
         api_key=settings.audio_api_key or "not-needed",
-        base_url=settings.audio_base_url or None,
+        base_url=audio_base_url,
     )
-    with open(src_path, "rb") as fh:
-        result = client.audio.transcriptions.create(
-            model=settings.audio_model,
-            file=fh,
-            response_format="verbose_json",
-        )
+    try:
+        with src_path.open("rb") as fh:
+            result = client.audio.transcriptions.create(
+                model=audio_model,
+                file=fh,
+                response_format="verbose_json",
+            )
+    except OSError as e:
+        raise ConversionError(f"Could not read audio file: {e}") from e
     segments = getattr(result, "segments", None) or []
     normalised = [
         (getattr(seg, "start", 0.0) or 0.0, getattr(seg, "text", "") or "")
@@ -175,7 +184,11 @@ def _transcribe(src_path: Path) -> str:
         from .config import get_settings
 
         settings_use_api = get_settings().audio_api_enabled
-        segments = _transcribe_api(src_path) if settings_use_api else _transcribe_local(src_path)
+        segments = (
+            _transcribe_api(src_path)
+            if settings_use_api
+            else _transcribe_local(src_path)
+        )
     except ConversionError:
         raise
     except Exception as e:  # any decode / model / network failure

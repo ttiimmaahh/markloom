@@ -3,6 +3,7 @@
 secrets.compare_digest raises TypeError on non-ASCII str — comparing as UTF-8
 bytes (auth.py) is what keeps a non-ASCII password from 500-ing every request.
 """
+
 import base64
 
 import pytest

@@ -18,6 +18,9 @@ frontend/dist/
 frontend/.vite/
 *.tsbuildinfo
 
+# --- agent artifacts ---
+.pi-subagents/
+
 # --- env & secrets ---
 .env
 

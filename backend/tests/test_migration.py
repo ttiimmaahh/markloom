@@ -3,6 +3,7 @@
 `CREATE TABLE IF NOT EXISTS` never alters an existing table, so every new column
 needs an ADD COLUMN migration. These tests guard that.
 """
+
 import sqlite3
 
 from app.db import _COLUMN_MIGRATIONS, _migrate
@@ -12,9 +13,7 @@ def _old_db() -> sqlite3.Connection:
     # A minimal pre-migration jobs table missing `attempts` and `mode`.
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
-    conn.executescript(
-        "CREATE TABLE jobs (id TEXT PRIMARY KEY, status TEXT NOT NULL);"
-    )
+    conn.executescript("CREATE TABLE jobs (id TEXT PRIMARY KEY, status TEXT NOT NULL);")
     return conn
 
 

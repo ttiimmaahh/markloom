@@ -6,6 +6,24 @@ import { Switch } from "@/components/ui/switch";
 import { uploadFile } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+const AUDIO_EXTENSIONS = new Set(["mp3", "wav", "m4a", "ogg", "flac"]);
+
+function isAudio(file: File): boolean {
+	const extension = file.name.split(".").pop()?.toLowerCase();
+	return extension !== undefined && AUDIO_EXTENSIONS.has(extension);
+}
+
+async function uploadSequentially(
+	files: File[],
+	enhanced: boolean,
+	index = 0,
+): Promise<void> {
+	const file = files[index];
+	if (!file) return;
+	await uploadFile(file, enhanced && !isAudio(file));
+	return uploadSequentially(files, enhanced, index + 1);
+}
+
 export function Dropzone({
 	onUploaded,
 	enhancedAvailable,
@@ -23,9 +41,7 @@ export function Dropzone({
 			setError(null);
 			setBusy(true);
 			try {
-				for (const file of files) {
-					await uploadFile(file, enhanced && enhancedAvailable);
-				}
+				await uploadSequentially(files, enhanced && enhancedAvailable);
 				onUploaded();
 			} catch (e) {
 				setError((e as Error).message);
@@ -92,7 +108,8 @@ export function Dropzone({
 						>
 							Uses an LLM to read text inside images (screenshots, diagrams,
 							scans). Much slower, and may contain OCR errors — verify critical
-							values against the source.
+							values against the source. Audio is always transcribed without
+							Enhanced OCR.
 						</p>
 					</div>
 					<Switch

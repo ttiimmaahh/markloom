@@ -1,17 +1,38 @@
 # Local development. Builds the image from source instead of pulling it.
 #   docker compose -f compose.dev.yaml up --build
+x-markloom-dev-image: &markloom-dev-image
+  image: markloom-dev:local
+  build:
+    context: .
+    dockerfile: Dockerfile
+
 services:
+  markloom-permissions:
+    image: markloom-dev:local
+    pull_policy: never
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ['chown -R "$${PUID}:$${PGID}" /data']
+    environment:
+      PUID: "${PUID:-1000}"
+      PGID: "${PGID:-1000}"
+    volumes:
+      - ./data:/data
+    restart: "no"
+
   markloom:
+    <<: *markloom-dev-image
     container_name: markloom-dev
-    build:
-      context: .
-      dockerfile: Dockerfile
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      markloom-permissions:
+        condition: service_completed_successfully
     ports:
       - "8674:8000"
     volumes:
       - ./data:/data
     env_file:
-      - .env                 # copy .env.example -> .env first
+      - .env # copy .env.example -> .env first
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]

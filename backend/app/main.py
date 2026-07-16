@@ -5,6 +5,7 @@ Request lifecycle for a conversion:
     GET  /api/jobs/{id} -> poll status until done/failed
     GET  /api/download/{id} -> stream the .md once done
 """
+
 from __future__ import annotations
 
 import logging
@@ -12,18 +13,21 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
-from fastapi.staticfiles import StaticFiles
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile  # pyright: ignore[reportMissingImports]
+from fastapi.responses import FileResponse, JSONResponse, Response  # pyright: ignore[reportMissingImports]
+from fastapi.staticfiles import StaticFiles  # pyright: ignore[reportMissingImports]
 
 from . import cleanup
 from .auth import is_authorized
-from .config import get_settings
+from .config import AUDIO_EXTENSIONS, get_settings
 from .db import init_db
 from .jobs import (
     ConversionMode,
+    InvalidTransition,
     Job,
     JobStatus,
+    can_cancel,
+    cancel_job,
     create_job,
     delete_job,
     get_job,
@@ -75,9 +79,15 @@ async def upload_size_guard(request: Request, call_next):
     if request.method == "POST" and request.url.path == "/api/convert":
         declared = request.headers.get("content-length", "")
         limit = get_settings().max_upload_bytes + _MULTIPART_OVERHEAD
-        if declared.isdigit() and int(declared) > limit:
+        try:
+            declared_size = int(declared)
+        except ValueError:
+            declared_size = None
+        if declared_size is not None and declared_size > limit:
             return JSONResponse(
-                {"detail": f"File exceeds the {get_settings().max_upload_mb} MB limit."},
+                {
+                    "detail": f"File exceeds the {get_settings().max_upload_mb} MB limit."
+                },
                 status_code=413,
             )
     return await call_next(request)
@@ -107,7 +117,10 @@ def _job_dict(job: Job) -> dict:
         "created_at": job.created_at,
         "completed_at": job.completed_at,
         "mode": job.mode,
-        "download_url": f"/api/download/{job.id}" if job.status == JobStatus.DONE else None,
+        "can_cancel": can_cancel(job),
+        "download_url": f"/api/download/{job.id}"
+        if job.status == JobStatus.DONE
+        else None,
     }
 
 
@@ -134,8 +147,11 @@ async def convert_endpoint(
     if ext not in settings.allowed_ext_set:
         raise HTTPException(415, f"Unsupported file type: .{ext or '(none)'}")
 
-    if enhanced and not settings.llm_enabled:
-        raise HTTPException(400, "Enhanced conversion requires an LLM to be configured.")
+    enhanced_document = enhanced and ext not in AUDIO_EXTENSIONS
+    if enhanced_document and not settings.llm_enabled:
+        raise HTTPException(
+            400, "Enhanced conversion requires an LLM to be configured."
+        )
 
     # Copy to disk in chunks, enforcing the size cap as bytes arrive — never the
     # whole file in memory (the Content-Length middleware can't catch chunked
@@ -150,13 +166,17 @@ async def convert_endpoint(
             while chunk := await file.read(1024 * 1024):
                 size += len(chunk)
                 if size > settings.max_upload_bytes:
-                    raise HTTPException(413, f"File exceeds the {settings.max_upload_mb} MB limit.")
+                    raise HTTPException(
+                        413, f"File exceeds the {settings.max_upload_mb} MB limit."
+                    )
                 out.write(chunk)
         if size == 0:
             raise HTTPException(400, "Empty file.")
 
-        mode = ConversionMode.ENHANCED if enhanced else ConversionMode.STANDARD
-        job = create_job(orig_filename=filename, file_type=ext, size_bytes=size, mode=mode)
+        mode = ConversionMode.ENHANCED if enhanced_document else ConversionMode.STANDARD
+        job = create_job(
+            orig_filename=filename, file_type=ext, size_bytes=size, mode=mode
+        )
         tmp.rename(upload_path(job.id, ext))
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -178,16 +198,57 @@ def job_endpoint(job_id: str) -> dict:
     return _job_dict(job)
 
 
+@app.post("/api/jobs/{job_id}/cancel")
+def cancel_job_endpoint(job_id: str) -> dict:
+    try:
+        job = cancel_job(job_id)
+    except KeyError as e:
+        raise HTTPException(404, "Job not found.") from e
+    except InvalidTransition as e:
+        raise HTTPException(409, "This conversion can no longer be stopped.") from e
+
+    # The DB transition wins first so a late completion cannot overwrite it.
+    # The worker also polls persisted status, covering cancel-before-register;
+    # this in-process signal makes the common path immediate.
+    worker.cancel(job.id)
+    upload_path(job.id, job.file_type).unlink(missing_ok=True)
+    return _job_dict(job)
+
+
 @app.delete("/api/jobs/{job_id}", status_code=204)
-def delete_job_endpoint(job_id: str) -> Response:
-    job = delete_job(job_id)
+def delete_job_endpoint(job_id: str) -> None:
+    job = get_job(job_id)
     if job is None:
         raise HTTPException(404, "Job not found.")
-    # Remove the converted markdown and any lingering original upload.
-    if job.md_path:
-        Path(job.md_path).unlink(missing_ok=True)
-    upload_path(job.id, job.file_type).unlink(missing_ok=True)
-    return Response(status_code=204)
+
+    # Deletion is retention, not a hidden cancellation mechanism. Stop active
+    # work first; if it became non-killable Standard/audio work, keep the row and
+    # tell the caller rather than pretending deletion stopped it.
+    if job.status in (JobStatus.QUEUED, JobStatus.PROCESSING):
+        try:
+            job = cancel_job(job_id)
+        except InvalidTransition as e:
+            latest = get_job(job_id)
+            if latest is None:
+                raise HTTPException(404, "Job not found.") from e
+            if latest.status not in (
+                JobStatus.DONE,
+                JobStatus.FAILED,
+                JobStatus.CANCELED,
+            ):
+                raise HTTPException(
+                    409,
+                    "Stop this conversion before deleting it.",
+                ) from e
+            job = latest
+        worker.cancel(job_id)
+
+    deleted = delete_job(job_id)
+    if deleted is None:
+        raise HTTPException(404, "Job not found.")
+    if deleted.md_path:
+        Path(deleted.md_path).unlink(missing_ok=True)
+    upload_path(deleted.id, deleted.file_type).unlink(missing_ok=True)
 
 
 @app.get("/api/download/{job_id}")
@@ -209,4 +270,6 @@ def download_endpoint(job_id: str):
 if STATIC_DIR.exists():
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
 else:
-    log.warning("static dir %s not found; SPA not served (dev without build?)", STATIC_DIR)
+    log.warning(
+        "static dir %s not found; SPA not served (dev without build?)", STATIC_DIR
+    )

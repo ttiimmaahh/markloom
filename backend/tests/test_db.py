@@ -5,6 +5,7 @@ Since v0.2.5 the container runs as uid 1000; a root-owned data directory
 init_db() must surface that as an actionable chown hint in docker logs, not a
 bare PermissionError traceback.
 """
+
 import os
 
 import pytest

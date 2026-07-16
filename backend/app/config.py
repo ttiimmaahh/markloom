@@ -4,12 +4,18 @@ Every knob here maps to an entry in `.env.example`, so self-hosters can
 configure the service without touching code. Defaults target the baseline we
 agreed on: trusted-LAN homelab, no auth, 30-day retention.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict  # pyright: ignore[reportMissingImports]
+
+
+# Extensions routed to transcription instead of document conversion. Enhanced
+# mode is a document-OCR feature and is never applied to these file types.
+AUDIO_EXTENSIONS = frozenset({"mp3", "wav", "m4a", "ogg", "flac"})
 
 
 class Settings(BaseSettings):
@@ -33,8 +39,7 @@ class Settings(BaseSettings):
     # Comma-separated list; parsed into `allowed_ext_set` below. The audio types
     # (mp3/wav/m4a/ogg/flac) are transcribed, not text-extracted — see converter.py.
     allowed_extensions: str = (
-        "pdf,docx,pptx,xlsx,xls,html,htm,csv,json,xml,txt,md,epub,"
-        "mp3,wav,m4a,ogg,flac"
+        "pdf,docx,pptx,xlsx,xls,html,htm,csv,json,xml,txt,md,epub,mp3,wav,m4a,ogg,flac"
     )
 
     # --- Worker ---
